@@ -1,0 +1,53 @@
+# OrangeFox flags for Infinix Note 40 Pro+ 5G (X6851B)
+/boot				emmc		/dev/block/by-name/boot											flags=display="Boot";slotselect;backup=1;flashimg=1
+/vendor_boot		emmc		/dev/block/by-name/vendor_boot									flags=display="Vendor Boot";slotselect;backup=1;flashimg=1
+/init_boot			emmc		/dev/block/by-name/init_boot									flags=display="Init Boot";slotselect;backup=1;flashimg=1
+/dtbo				emmc		/dev/block/by-name/dtbo											flags=display="DTBO";slotselect;backup=1;flashimg=1
+/vbmeta				emmc		/dev/block/by-name/vbmeta										flags=display="VBMeta";slotselect;backup=1;flashimg=1
+/vbmeta_system		emmc		/dev/block/by-name/vbmeta_system								flags=display="VBMeta System";slotselect;backup=1;flashimg=1
+/vbmeta_vendor		emmc		/dev/block/by-name/vbmeta_vendor								flags=display="VBMeta Vendor";slotselect;backup=1;flashimg=1
+
+# Core Firmware Partitions
+/lk					emmc		/dev/block/by-name/lk											flags=display="Bootloader (lk)";slotselect;backup=1;flashimg=1
+/logo				emmc		/dev/block/by-name/logo											flags=display="Boot Logo";slotselect;backup=1;flashimg=1
+/md1img				emmc		/dev/block/by-name/md1img										flags=display="Modem (md1img)";slotselect;backup=1;flashimg=1
+/preloader_raw		emmc		/dev/block/by-name/preloader_raw								flags=display="Preloader";slotselect;backup=1;flashimg=1
+/spmfw				emmc		/dev/block/by-name/spmfw										flags=display="SPMFW";slotselect;backup=1;flashimg=1
+/scp				emmc		/dev/block/by-name/scp											flags=display="SCP";slotselect;backup=1;flashimg=1
+/sspm				emmc		/dev/block/by-name/sspm											flags=display="SSPM";slotselect;backup=1;flashimg=1
+/gz					emmc		/dev/block/by-name/gz											flags=display="GZ";slotselect;backup=1;flashimg=1
+/dpm				emmc		/dev/block/by-name/dpm											flags=display="DPM";slotselect;backup=1;flashimg=1
+/mcupm				emmc		/dev/block/by-name/mcupm										flags=display="MCUPM";slotselect;backup=1;flashimg=1
+/vcp				emmc		/dev/block/by-name/vcp											flags=display="VCP";slotselect;backup=1;flashimg=1
+/gpueb				emmc		/dev/block/by-name/gpueb										flags=display="GPUEB";slotselect;backup=1;flashimg=1
+/pi_img				emmc		/dev/block/by-name/pi_img										flags=display="PI Image";slotselect;backup=1;flashimg=1
+/tee				emmc		/dev/block/by-name/tee											flags=display="TEE / TrustZone";slotselect;backup=1;flashimg=1
+/tkv				emmc		/dev/block/by-name/tkv											flags=display="TKV";slotselect;backup=1;flashimg=1
+
+# Protected Sensitive Partitions
+/nvcfg				ext4		/dev/block/by-name/nvcfg										flags=display="NVCFG";backup=1
+/nvdata				ext4		/dev/block/by-name/nvdata										flags=display="NVDATA";backup=1
+/nvram				emmc		/dev/block/by-name/nvram										flags=display="NVRAM (IMEI)";backup=1
+/persist			ext4		/dev/block/by-name/persist										flags=display="Persist";backup=1
+/proinfo			emmc		/dev/block/by-name/proinfo										flags=display="Proinfo";backup=1
+/protect_f			ext4		/dev/block/by-name/protect1										flags=display="Protect_F";backup=1
+/protect_s			ext4		/dev/block/by-name/protect2										flags=display="Protect_S";backup=1
+/persistent			emmc		/dev/block/by-name/frp											flags=display="FRP";backup=1
+/tranfs				ext4		/dev/block/by-name/tranfs										flags=display="Transsion Storage";backup=1
+/misc				emmc		/dev/block/by-name/misc											flags=display="Misc";backup=1
+
+# User Data & Removable Storage
+/data				f2fs		/dev/block/by-name/userdata										flags=display="Data";backup=1;wipeingui
+/metadata			ext4		/dev/block/by-name/metadata										flags=display="Metadata";backup=1;wipeingui
+/usb_otg			auto		/dev/block/sdd1				/dev/block/sdd			/dev/block/sde1			flags=display="USB-OTG";storage;wipeingui;removable;backup=0
+
+# Super & Logical Flashable Image Partitions
+/super				emmc		/dev/block/by-name/super										flags=display="Super (Dynamic Partitions)";backup=1;flashimg=1
+/system_image		emmc		/dev/block/bootdevice/by-name/system		/dev/block/by-name/system			flags=display="System Image";backup=1;flashimg=1
+/vendor_image		emmc		/dev/block/bootdevice/by-name/vendor		/dev/block/by-name/vendor			flags=display="Vendor Image";backup=1;flashimg=1
+/product_image		emmc		/dev/block/bootdevice/by-name/product		/dev/block/by-name/product			flags=display="Product Image";backup=1;flashimg=1
+/system_ext_image	emmc		/dev/block/bootdevice/by-name/system_ext	/dev/block/by-name/system_ext		flags=display="System EXT Image";backup=1;flashimg=1
+/odm_image			emmc		/dev/block/bootdevice/by-name/odm			/dev/block/by-name/odm				flags=display="ODM Image";backup=1;flashimg=1
+/vendor_dlkm_image	emmc		/dev/block/bootdevice/by-name/vendor_dlkm	/dev/block/by-name/vendor_dlkm		flags=display="Vendor DLKM Image";backup=1;flashimg=1
+/odm_dlkm_image		emmc		/dev/block/bootdevice/by-name/odm_dlkm		/dev/block/by-name/odm_dlkm			flags=display="ODM DLKM Image";backup=1;flashimg=1
+/system_dlkm_image	emmc		/dev/block/bootdevice/by-name/system_dlkm	/dev/block/by-name/system_dlkm		flags=display="System DLKM Image";backup=1;flashimg=1

@@ -1,0 +1,155 @@
+import /init.tee.rc
+import /init.device.rc
+
+on early-init
+    wait /dev/block/platform/soc/112b0000.ufshci
+    symlink /dev/block/platform/soc/112b0000.ufshci /dev/block/bootdevice
+    symlink /dev/block/platform/soc/112b0000.ufshci/by-name /dev/block/bootdevice/by-name
+    symlink /dev/block/platform/soc/112b0000.ufshci/by-name /dev/block/by-name
+
+on init
+    restorecon /kmsg
+    restorecon_recursive /sys/devices/platform/soc/soc:mtk-leds
+    restorecon_recursive /sys/devices/platform/soc/soc:regulator-vibrator/leds/vibrator
+    restorecon /sys/devices/platform/soc/mt_usb/saving
+    symlink /tmp/fstab /etc/fstab
+    symlink /first_stage_ramdisk/fstab.mt6855 /fstab.mt6855
+    symlink /first_stage_ramdisk/fstab.mt6855 /vendor/etc/fstab.mt6855
+    symlink /vendor/bin/hw/android.hardware.security.keymint@3.0-service.trustonic /vendor/bin/hw/android.hardware.security.keymint-service.trustonic
+    export LD_LIBRARY_PATH /system/lib64:/vendor/lib64:/vendor/lib64/hw
+    setprop sys.usb.configfs 1
+    setprop sys.usb.controller "musb-hdrc"
+    setprop sys.usb.ffs.aio_compat 1
+    setprop ro.crypto.set_dun true
+
+    # Exact Stock Device Identity (Infinix Note 40 Pro+ 5G - X6851B)
+    setprop ro.product.model "Infinix Note 40 Pro+ 5G"
+    setprop ro.product.name "fox_X6851B"
+    setprop ro.product.device "Infinix-X6851B"
+    setprop ro.product.brand "Infinix"
+    setprop ro.product.manufacturer "INFINIX"
+    setprop ro.build.product "X6851B"
+    setprop ro.twrp.target.devices "Infinix-X6851B,X6851B,Infinix_X6851B,Infinix-Note-40-Pro-Plus"
+
+    # Hardware blockdevice symlinks
+    wait /dev/block/platform/soc/112b0000.ufshci
+    symlink /dev/block/platform/soc/112b0000.ufshci /dev/block/bootdevice
+    symlink /dev/block/platform/soc/112b0000.ufshci/by-name /dev/block/bootdevice/by-name
+    symlink /dev/block/platform/soc/112b0000.ufshci/by-name /dev/block/by-name
+
+    # Mount /metadata for vold metadata encryption key (Android 16 GKI)
+    wait /dev/block/by-name/metadata
+    mount ext4 /dev/block/by-name/metadata /metadata noatime nosuid nodev discard
+    mkdir /metadata/vold 0700 root root
+    mkdir /metadata/vold/metadata_encryption 0700 root root
+    mkdir /metadata/recovery 0770 root root
+    chmod 0770 /metadata/recovery
+    rm /cache
+    symlink /metadata/recovery /cache
+
+    # Mount /mnt/vendor/persist for Trustonic TEE (mobicore mcRegistry)
+    wait /dev/block/by-name/persist
+    mkdir /mnt/vendor/persist 0771 system system
+    mount ext4 /dev/block/by-name/persist /mnt/vendor/persist noatime nosuid nodev
+    chown system system /mnt/vendor/persist
+    chmod 0771 /mnt/vendor/persist
+    mkdir /mnt/vendor/persist/mcRegistry 0771 system system
+    chown system system /mnt/vendor/persist/mcRegistry
+    chmod 0771 /mnt/vendor/persist/mcRegistry
+    mkdir /data/vendor 0775 system system
+    mkdir /data/vendor/mcRegistry 0775 system system
+
+    # Install session keyring for dm-default-key
+    install_keyring
+
+    # Hardware drivers for touch & display
+    insmod /lib/modules/spi-mt65xx.ko
+    insmod /lib/modules/adaptive-ts.ko
+    insmod /lib/modules/focaltech_ft3683g.ko
+    insmod /lib/modules/nt37703a_fhdp_dsi_vdo_tm_tm_120hz_x6851.ko
+
+    # TEE Device node permissions for KeyMint and Keystore2
+    chmod 0666 /dev/mobicore
+    chmod 0666 /dev/mobicore-user
+    chmod 0666 /dev/teeperf
+
+on property:persist.vendor.mtk.pl_lnk=1
+    symlink /dev/block/mapper/pl_a /dev/block/by-name/preloader_raw_a
+    symlink /dev/block/mapper/pl_b /dev/block/by-name/preloader_raw_b
+    symlink /dev/block/mapper/pl_a /dev/block/platform/bootdevice/by-name/preloader_raw_a
+    symlink /dev/block/mapper/pl_b /dev/block/platform/bootdevice/by-name/preloader_raw_b
+    symlink /dev/block/by-name/lk1 /dev/block/by-name/bootloader1
+    symlink /dev/block/by-name/lk2 /dev/block/by-name/bootloader2
+
+# Sequential Trustonic TEE bringup
+on property:ro.crypto.state=encrypted && property:ro.boot.dynamic_partitions=true
+    start mobicore
+
+on property:ro.vendor.trustonic.ready=true
+    start vendor.gatekeeper-default
+    start vendor.keymint-trustonic
+    setprop crypto.ready 1
+
+on property:servicemanager.ready=true
+    setprop sys.boot_completed 1
+    mkdir /tmp/misc 0777 root root
+    mkdir /tmp/misc/keystore 0777 root root
+    start mobicore
+    start keystore2
+
+on boot
+    setprop sys.usb.config adb
+    mkdir /tmp/misc 0777 root root
+    mkdir /tmp/misc/keystore 0777 root root
+    start mobicore
+    start keystore2
+    write /sys/fs/selinux/enforce 0
+
+# Gatekeeper service (Trustonic)
+service vendor.gatekeeper-default /vendor/bin/hw/android.hardware.gatekeeper-service.trustonic
+    class early_hal
+    interface aidl android.hardware.gatekeeper.IGatekeeper/default
+    user system
+    group system
+    disabled
+    seclabel u:r:recovery:s0
+
+# Keymint service (Trustonic RKP v1 KeyMint AIDL)
+service vendor.keymint-trustonic /vendor/bin/hw/android.hardware.security.keymint@3.0-service.trustonic --rkp_version=v1
+    class early_hal
+    interface aidl android.hardware.security.keymint.IKeyMintDevice/default
+    interface aidl android.hardware.security.sharedsecret.ISharedSecret/default
+    interface aidl android.hardware.security.secureclock.ISecureClock/default
+    user system
+    group system
+    disabled
+    seclabel u:r:recovery:s0
+
+# MediaTek AIDL BootControl HAL
+service vendor.boot-default /system/bin/hw/android.hardware.boot-service.mtk
+    class early_hal
+    user root
+    group root
+    interface aidl android.hardware.boot.IBootControl/default
+    seclabel u:r:recovery:s0
+    override
+
+# Health HAL service definition
+service vendor.health-default /system/bin/hw/android.hardware.health-service.example_recovery
+    class hal
+    user root
+    group root
+    capabilities WAKE_ALARM BLOCK_SUSPEND
+    file /dev/kmsg w
+    seclabel u:r:recovery:s0
+    override
+
+# Keystore2 service definition
+service keystore2 /system/bin/keystore2 /tmp/misc/keystore
+    class early_hal
+    interface aidl android.system.keystore2.IKeystoreService/default
+    user root
+    group root keystore readproc log
+    writepid /dev/cpuset/foreground/tasks
+    seclabel u:r:recovery:s0
+    override
