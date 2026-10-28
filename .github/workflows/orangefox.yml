@@ -1,67 +1,132 @@
-name: OrangeFox Recovery - Infinix Note 40 Pro+ 5G (X6851B) Android 16
+name: OrangeFox Recovery - Infinix Note 40 Pro+ 5G (X6851B)
 
 on:
   workflow_dispatch:
-    inputs:
-      SYNC_BRANCH:
-        description: 'OrangeFox Manifest Branch'
-        required: true
-        default: '14.1'
-      DEVICE_TREE_BRANCH:
-        description: 'Device Tree Branch'
-        required: true
-        default: 'android-16'
 
 jobs:
   build:
     name: Build OrangeFox A16 for X6851B
     runs-on: ubuntu-22.04
-    steps:
-      - name: Maximize Build Space
-        uses: easimon/maximize-build-space@master
-        with:
-          root-reserve-mb: 1024
-          swap-size-mb: 8192
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
+    permissions:
+      contents: write
 
-      - name: Setup Build Environment
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /usr/local/share/powershell \
+            /usr/local/share/boost \
+            /usr/local/share/chromium \
+            /usr/share/swift \
+            /opt/hostedtoolcache \
+            /var/lib/docker \
+            /usr/local/.ghcup \
+            /usr/local/share/vcpkg \
+            /usr/share/ruby \
+            /usr/share/rust \
+            /usr/local/graalvm
+          sudo docker image prune --all --force 2>/dev/null || true
+          sudo docker builder prune -a --force 2>/dev/null || true
+          df -h
+
+      - name: Setup Swap Space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 12
+
+      - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev \
-            libc6-dev-i386 libncurses5 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev \
-            libgl1-mesa-dev libxml2 libxml2-utils xsltproc unzip fontconfig zstd libzstd-dev python3-pip
+          sudo apt-get install -y \
+            git-core gnupg flex bison build-essential zip curl zlib1g-dev \
+            libc6-dev-i386 libncurses5 x11proto-core-dev libx11-dev lib32z1-dev \
+            libgl1-mesa-dev libxml2 libxml2-utils xsltproc unzip fontconfig \
+            python3 python3-pip python-is-python3 libssl-dev rsync bc liblz4-tool libncurses5-dev \
+            squashfs-tools libtinfo5 openjdk-11-jdk-headless ccache zstd patch
           pip3 install zstandard lz4
 
-      - name: Sync OrangeFox 14.1
+      - name: Install Repo Tool
         run: |
-          mkdir -p ~/fox_14.1 && cd ~/fox_14.1
-          git clone --depth=1 https://gitlab.com/OrangeFox/sync.git ~/OrangeFox_sync
-          ~/OrangeFox_sync/orangefox_sync.sh --branch ${{ github.event.inputs.SYNC_BRANCH }} --path ~/fox_14.1
+          mkdir -p ~/.bin
+          curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/.bin/repo
+          chmod a+x ~/.bin/repo
+          sudo ln -sf ~/.bin/repo /usr/local/bin/repo
 
-      - name: Checkout Device Tree
-        uses: actions/checkout@v4
+      - name: Cache ccache
+        uses: actions/cache@v4
         with:
-          path: ~/fox_14.1/device/infinix/X6851B
+          path: /home/runner/fox_14.1/out/.ccache
+          key: ccache-fox_14.1-x6851b-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-fox_14.1-x6851b-${{ runner.os }}-
 
-      - name: Build Recovery Ramdisk
+      - name: Set Git Identity
         run: |
-          cd ~/fox_14.1
+          git config --global user.name "MBuTT3178"
+          git config --global user.email "mbutt@users.noreply.github.com"
+          git config --global color.ui false
+
+      - name: Sync OrangeFox 14.1 Manifest
+        run: |
+          mkdir -p $HOME/fox_14.1
+          cd $HOME/fox_14.1
+          git clone --depth=1 https://gitlab.com/OrangeFox/sync.git $HOME/OrangeFox_sync
+          cd $HOME/OrangeFox_sync
+          sed -i 's/-j\$(nproc --all)/-j4/g' orangefox_sync.sh
+          sed -i 's/repo_sync;/repo_sync || (sleep 15 \&\& repo_sync) || (sleep 15 \&\& repo_sync);/g' orangefox_sync.sh
+          ./orangefox_sync.sh --branch 14.1 --path $HOME/fox_14.1
+          cd $HOME/fox_14.1
+          rm -rf .repo/project-objects .repo/projects
+          repo sync external/gflags || true
+          repo sync external/guava || true
+          repo sync hardware/google/interfaces || true
+          repo sync hardware/google/pixel || true
+          df -h
+
+      - name: Setup Device Tree
+        run: |
+          mkdir -p $HOME/fox_14.1/device/infinix/X6851B
+          cp -r $GITHUB_WORKSPACE/device/infinix/X6851B/* $HOME/fox_14.1/device/infinix/X6851B/
+          chmod +x $HOME/fox_14.1/device/infinix/X6851B/vendorsetup.sh
+
+      - name: Build OrangeFox Recovery Ramdisk
+        run: |
+          cd $HOME/fox_14.1
+          mkdir -p $HOME/fox_14.1/out/.ccache
+          export USE_CCACHE=1
+          export CCACHE_DIR=$HOME/fox_14.1/out/.ccache
+          export CCACHE_EXEC=$(which ccache)
+          export BUILD_BROKEN_SRC_DIR_IS_WRITABLE=true
+          ccache -M 15G
+          ccache -z
           source build/envsetup.sh
           source device/infinix/X6851B/vendorsetup.sh
+          export ALLOW_MISSING_DEPENDENCIES=true
+          export FOX_USE_ZSTD_BINARY=1
+          export FOX_BUILD_DEVICE=X6851B
           lunch twrp_X6851B-ap2a-eng
-          mka adbd vendorbootimage -j$(nproc)
+          mka adbd vendorbootimage -j$(nproc --all)
+          ccache -s
 
-      - name: Repack Dual ZSTD vendor_boot (<=64MB Boundary)
+      - name: Repack Dual ZSTD vendor_boot (<=64MB Strict Boundary)
         run: |
-          python3 ~/fox_14.1/device/infinix/X6851B/scripts/repack_vendor_boot_a16.py \
-            ~/fox_14.1/device/infinix/X6851B/prebuilt/stock_vendor_boot.img \
-            ~/fox_14.1/out/target/product/X6851B/ramdisk-recovery.cpio \
-            ~/fox_14.1/out/target/product/X6851B/vendor_boot.img
+          mkdir -p $GITHUB_WORKSPACE/output
+          TARGET_DIR="$HOME/fox_14.1/out/target/product/X6851B"
 
-      - name: Upload Artifact
+          echo "=== Repacking vendor_boot with Stock Android 16 Fragment 0 and DTB ==="
+          python3 $GITHUB_WORKSPACE/scripts/repack_vendor_boot_a16.py \
+            $GITHUB_WORKSPACE/reference/stock_vendor_boot.img.gz \
+            "$TARGET_DIR/vendor_boot.img" \
+            "$GITHUB_WORKSPACE/output/OrangeFox-R14.1-Unofficial-X6851B-XOS16-vendor_boot.img"
+
+      - name: Upload Recovery Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: OrangeFox-X6851B-XOS16-vendor_boot
-          path: ~/fox_14.1/out/target/product/X6851B/vendor_boot.img
+          path: ${{ github.workspace }}/output/*.img

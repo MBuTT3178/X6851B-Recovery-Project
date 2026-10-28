@@ -2,7 +2,26 @@ import /init.tee.rc
 import /init.device.rc
 
 on early-init
-    wait /dev/block/platform/soc/112b0000.ufshci
+    # 1. Load UFS storage drivers so /dev/block/platform/soc/112b0000.ufshci appears
+    insmod /lib/modules/rpmb.ko
+    insmod /lib/modules/tran-proc-bootdevice-mod.ko
+    insmod /lib/modules/irq-dbg.ko
+    insmod /lib/modules/aee_aed.ko
+    insmod /lib/modules/mrdump.ko
+    insmod /lib/modules/ufs-mediatek-dbg.ko
+    insmod /lib/modules/tran_sd_mod.ko
+    insmod /lib/modules/tran_scsi_mod.ko
+    insmod /lib/modules/tran-ufshcd-core.ko
+    insmod /lib/modules/tran-ufshcd-pltfrm.ko
+    insmod /lib/modules/blocktag.ko
+    insmod /lib/modules/transsion_tranlog.ko
+    insmod /lib/modules/thd.ko
+    insmod /lib/modules/phy-mtk-ufs.ko
+    insmod /lib/modules/ufs-mediatek-mod.ko
+    insmod /lib/modules/rpmb-mtk.ko
+
+    # Wait for UFS storage controller (with 3-second timeout)
+    wait /dev/block/platform/soc/112b0000.ufshci 3
     symlink /dev/block/platform/soc/112b0000.ufshci /dev/block/bootdevice
     symlink /dev/block/platform/soc/112b0000.ufshci/by-name /dev/block/bootdevice/by-name
     symlink /dev/block/platform/soc/112b0000.ufshci/by-name /dev/block/by-name
@@ -31,14 +50,73 @@ on init
     setprop ro.build.product "X6851B"
     setprop ro.twrp.target.devices "Infinix-X6851B,X6851B,Infinix_X6851B,Infinix-Note-40-Pro-Plus"
 
-    # Hardware blockdevice symlinks
-    wait /dev/block/platform/soc/112b0000.ufshci
+    # Hardware blockdevice symlinks fallback
     symlink /dev/block/platform/soc/112b0000.ufshci /dev/block/bootdevice
     symlink /dev/block/platform/soc/112b0000.ufshci/by-name /dev/block/bootdevice/by-name
     symlink /dev/block/platform/soc/112b0000.ufshci/by-name /dev/block/by-name
 
+    # 2. Display & DRM KMS drivers in topological dependency order
+    insmod /lib/modules/mtk_panel_ext.ko
+    insmod /lib/modules/nt37703a_fhdp_dsi_vdo_tm_tm_120hz_x6851.ko
+    insmod /lib/modules/drm_display_helper.ko
+    insmod /lib/modules/drm_dma_helper.ko
+    insmod /lib/modules/mtk-afe-external.ko
+    insmod /lib/modules/tinysys-scmi.ko
+    insmod /lib/modules/log_store.ko
+    insmod /lib/modules/device-apc-common.ko
+    insmod /lib/modules/emi-mpu.ko
+    insmod /lib/modules/emi.ko
+    insmod /lib/modules/mtk-mminfra-util.ko
+    insmod /lib/modules/clk-common.ko
+    insmod /lib/modules/clk-mt6855.ko
+    insmod /lib/modules/mtk-smi.ko
+    insmod /lib/modules/mtk-smi-dbg.ko
+    insmod /lib/modules/vcp_status.ko
+    insmod /lib/modules/iommu_debug.ko
+    insmod /lib/modules/mmprofile.ko
+    insmod /lib/modules/mtk-cmdq-drv-ext.ko
+    insmod /lib/modules/mtk-mminfra-debug.ko
+    insmod /lib/modules/mtk_sync.ko
+    insmod /lib/modules/mtk_slbc.ko
+    insmod /lib/modules/system_heap.ko
+    insmod /lib/modules/mtk-icc-core.ko
+    insmod /lib/modules/mtk-mmdvfs.ko
+    insmod /lib/modules/mtk-mmdebug-vcp-stub.ko
+    insmod /lib/modules/mtk-mbox.ko
+    insmod /lib/modules/mtk_rpmsg_mbox.ko
+    insmod /lib/modules/mtk_tinysys_ipi.ko
+    insmod /lib/modules/mtk-mmdvfs-v3.ko
+    insmod /lib/modules/mtk-mml.ko
+    insmod /lib/modules/tran_key_bigdata.ko
+    insmod /lib/modules/leds-mtk.ko
+    insmod /lib/modules/leds-mtk-disp.ko
+    insmod /lib/modules/pwm-mtk-disp.ko
+    insmod /lib/modules/mtk-mmdvfs-debug.ko
+    insmod /lib/modules/mm-monitor-platform-mt6855.ko
+    insmod /lib/modules/mtk-mm-monitor-controller.ko
+    insmod /lib/modules/mtk_dramc.ko
+    insmod /lib/modules/mtk-dvfsrc.ko
+    insmod /lib/modules/mmqos-common.ko
+    insmod /lib/modules/mtk_disp_notify.ko
+    insmod /lib/modules/mediatek_drm_v1.ko
+
+    # 3. Touchscreen, Keys, USB
+    insmod /lib/modules/opsMediator.ko
+    insmod /lib/modules/adaptive-ts.ko
+    insmod /lib/modules/spi-mt65xx.ko
+    insmod /lib/modules/focaltech_ft3683g.ko
+    insmod /lib/modules/mtk-pmic-keys.ko
+    insmod /lib/modules/tran_expand_key.ko
+    insmod /lib/modules/mtk-kpd.ko
+    insmod /lib/modules/phy-generic.ko
+    insmod /lib/modules/musb_boost.ko
+    insmod /lib/modules/musb_hdrc.ko
+    insmod /lib/modules/musb_main.ko
+    insmod /lib/modules/mtk_wdt.ko
+
+on fs
     # Mount /metadata for vold metadata encryption key (Android 16 GKI)
-    wait /dev/block/by-name/metadata
+    wait /dev/block/by-name/metadata 3
     mount ext4 /dev/block/by-name/metadata /metadata noatime nosuid nodev discard
     mkdir /metadata/vold 0700 root root
     mkdir /metadata/vold/metadata_encryption 0700 root root
@@ -48,7 +126,7 @@ on init
     symlink /metadata/recovery /cache
 
     # Mount /mnt/vendor/persist for Trustonic TEE (mobicore mcRegistry)
-    wait /dev/block/by-name/persist
+    wait /dev/block/by-name/persist 3
     mkdir /mnt/vendor/persist 0771 system system
     mount ext4 /dev/block/by-name/persist /mnt/vendor/persist noatime nosuid nodev
     chown system system /mnt/vendor/persist
@@ -59,16 +137,7 @@ on init
     mkdir /data/vendor 0775 system system
     mkdir /data/vendor/mcRegistry 0775 system system
 
-    # Install session keyring for dm-default-key
-    install_keyring
-
-    # Hardware drivers for touch & display
-    insmod /lib/modules/spi-mt65xx.ko
-    insmod /lib/modules/adaptive-ts.ko
-    insmod /lib/modules/focaltech_ft3683g.ko
-    insmod /lib/modules/nt37703a_fhdp_dsi_vdo_tm_tm_120hz_x6851.ko
-
-    # TEE Device node permissions for KeyMint and Keystore2
+    # TEE Device node permissions
     chmod 0666 /dev/mobicore
     chmod 0666 /dev/mobicore-user
     chmod 0666 /dev/teeperf
@@ -83,6 +152,7 @@ on property:persist.vendor.mtk.pl_lnk=1
 
 # Sequential Trustonic TEE bringup
 on property:ro.crypto.state=encrypted && property:ro.boot.dynamic_partitions=true
+    insmod /lib/modules/mcDrvModule.ko
     start mobicore
 
 on property:ro.vendor.trustonic.ready=true
