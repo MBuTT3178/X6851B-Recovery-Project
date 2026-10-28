@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """
 Android 16 Dual-Ramdisk Vendor Boot Repacker for Infinix Note 40 Pro+ 5G (X6851B)
-Target: MediaTek Dimensity 7020 (MT6855), Linux 6.12 GKI, Boot Header v4 (64.0 MB strict partition boundary)
+Target: MediaTek Dimensity 7020 (MT6855), Linux 6.12 GKI, Boot Header v4
+Includes:
+- Automated CPIO permission normalization (uid=0, gid=0, mode &= ~0022) to satisfy Android 16 init security parser
+- Removal of conflicting stock recovery binaries from Fragment 0
+- AVB 2.0 VBMeta block insertion + AVBf footer at partition boundary (essential for MediaTek LK bootloader)
+- Strict 64.0 MB (67,108,864 bytes) partition adherence
 """
 
 import struct
@@ -49,28 +54,65 @@ def normalize_cpio_security(cpio_bytes):
         mode_hex = f"{safe_mode:08x}".encode('ascii')
         header[14:22] = mode_hex
 
-        name_offset = pos + 110
-        name_pad = (4 - ((110 + namesize) % 4)) % 4
-        file_offset = name_offset + namesize + name_pad
-        file_pad = (4 - (filesize % 4)) % 4
-        next_pos = file_offset + filesize + file_pad
-
-        name = cpio_bytes[name_offset:name_offset+namesize].split(b'\x00')[0]
+        h_len = 110 + namesize
+        pad_h = (4 - (h_len % 4)) % 4
+        pad_f = (4 - (filesize % 4)) % 4
+        entry_len = h_len + pad_h + filesize + pad_f
 
         out.write(header)
-        out.write(cpio_bytes[name_offset:next_pos])
+        out.write(cpio_bytes[pos+110:pos+entry_len])
+        pos += entry_len
 
-        if name == b'TRAILER!!!':
+    return out.getvalue()
+
+def filter_cpio_entries(cpio_bytes, remove_exact, remove_prefixes):
+    """
+    Filters out conflicting files from CPIO (e.g. stock recovery binaries from Fragment 0).
+    """
+    out = io.BytesIO()
+    pos = 0
+    total_len = len(cpio_bytes)
+    removed_count = 0
+
+    while pos < total_len:
+        if pos + 110 > total_len:
+            out.write(cpio_bytes[pos:])
             break
 
-        pos = next_pos
+        magic = cpio_bytes[pos:pos+6]
+        if magic not in (b'070701', b'070702'):
+            out.write(cpio_bytes[pos:])
+            break
 
-    res = out.getvalue()
-    # Pad cpio to 512-byte boundary
-    pad_len = (512 - (len(res) % 512)) % 512
-    if pad_len > 0:
-        res += b'\x00' * pad_len
-    return res
+        header = cpio_bytes[pos:pos+110]
+        filesize = int(header[54:62], 16)
+        namesize = int(header[94:102], 16)
+        name = cpio_bytes[pos+110:pos+110+namesize-1].decode('utf-8', errors='ignore')
+
+        h_len = 110 + namesize
+        pad_h = (4 - (h_len % 4)) % 4
+        pad_f = (4 - (filesize % 4)) % 4
+        entry_len = h_len + pad_h + filesize + pad_f
+
+        should_remove = False
+        if name in remove_exact:
+            should_remove = True
+        else:
+            for prefix in remove_prefixes:
+                if name.startswith(prefix):
+                    should_remove = True
+                    break
+
+        if should_remove:
+            removed_count += 1
+            pos += entry_len
+            continue
+
+        out.write(cpio_bytes[pos:pos+entry_len])
+        pos += entry_len
+
+    print(f"    [+] Filtered {removed_count} conflicting entries from CPIO stream.")
+    return out.getvalue()
 
 def decompress_lz4_legacy(raw_data):
     pos = 4
@@ -83,10 +125,10 @@ def decompress_lz4_legacy(raw_data):
         b_data = raw_data[pos:pos+b_size]
         pos += b_size
         try:
-            decomp = lz4.block.decompress(b_data, uncompressed_size=8*1024*1024)
-            blocks.append(decomp)
+            decomp_b = lz4.block.decompress(b_data, uncompressed_size=8*1024*1024)
+            blocks.append(decomp_b)
         except Exception as e:
-            print("LZ4 decompress block warning:", e)
+            print(f"[!] Warning: LZ4 block decompression ended: {e}")
             break
     return b''.join(blocks)
 
@@ -97,7 +139,9 @@ def repack(stock_path, built_path, output_path):
             stock_bytes = gz_f.read()
         stock_file = io.BytesIO(stock_bytes)
     else:
-        stock_file = open(stock_path, 'rb')
+        with open(stock_path, 'rb') as f:
+            stock_bytes = f.read()
+        stock_file = io.BytesIO(stock_bytes)
 
     try:
         stock_hdr = stock_file.read(4096)
@@ -133,6 +177,16 @@ def repack(stock_path, built_path, output_path):
         if "androidboot.selinux=permissive" not in bc_str:
             bc_str = "androidboot.selinux=permissive\n" + bc_str.strip() + "\n"
         bootconfig_data = bc_str.encode('utf-8')
+
+        # Read stock AVB0 (VBMeta struct)
+        avb_idx = stock_bytes.find(b'AVB0')
+        if avb_idx != -1:
+            vbmeta_data = stock_bytes[avb_idx:avb_idx+640]
+            print(f"[+] Found stock AVB0 VBMeta block at offset {avb_idx} ({len(vbmeta_data)} bytes)")
+        else:
+            vbmeta_data = b''
+            print("[!] Warning: No AVB0 block found in stock image!")
+
     finally:
         stock_file.close()
 
@@ -150,6 +204,18 @@ def repack(stock_path, built_path, output_path):
         raise ValueError(f"Unknown Fragment 0 compression: {raw_frag0_data[:4].hex()}")
 
     print(f"[+] Frag0 uncompressed size: {len(uncompressed_frag0)} bytes")
+
+    # Filter out stock recovery binaries from Fragment 0 so Fragment 1 (OrangeFox) has exclusive control
+    print("[+] Filtering out stock recovery binaries from Fragment 0...")
+    remove_exact = {
+        'system/bin/recovery',
+        'system/lib64/librecovery_ui.so',
+        'system/lib64/librecovery_ui_ext.so',
+        'system/etc/init/android.hardware.boot-service.mtk_recovery.rc',
+        'system/etc/init/android.hardware.health-service.example_recovery.rc',
+        'system/etc/init/servicemanager.recovery.rc'
+    }
+    uncompressed_frag0 = filter_cpio_entries(uncompressed_frag0, remove_exact, [])
 
     # Sanitize Fragment 0 VINTF paths & version
     p1 = b'system/etc/vintf/manifest/android.hardware.boot-service.mtk.xml'
@@ -279,13 +345,44 @@ def repack(stock_path, built_path, output_path):
         pad4 = page_align(len(bootconfig_data), page_size) - len(bootconfig_data)
         if pad4 > 0: out_parts.append(b'\x00' * pad4)
 
+        # Append AVB0 VBMeta block if present in stock
+        if len(vbmeta_data) > 0:
+            vbm_offset = (
+                page_size +
+                page_align(len(total_ramdisk), page_size) +
+                page_align(len(dtb_data), page_size) +
+                page_align(len(new_table_data), page_size) +
+                page_align(len(bootconfig_data), page_size)
+            )
+            out_parts.append(vbmeta_data)
+            pad5 = page_align(len(vbmeta_data), page_size) - len(vbmeta_data)
+            if pad5 > 0: out_parts.append(b'\x00' * pad5)
+        else:
+            vbm_offset = 0
+
         final_data = b''.join(out_parts)
         final_data_len = len(final_data)
 
-        if final_data_len <= target_part_size:
-            headroom = target_part_size - final_data_len
-            print(f"    [+] Successfully fits at ZSTD level {zstd_level}: {final_data_len} bytes <= {target_part_size} bytes (Headroom: {headroom/1024:.2f} KB)")
-            final_padded = final_data + b'\x00' * headroom
+        # 64 bytes reserved at the partition end for AvbFooter (AVBf)
+        required_len = final_data_len + 64
+        if required_len <= target_part_size:
+            headroom = target_part_size - 64 - final_data_len
+            if len(vbmeta_data) > 0:
+                footer = struct.pack(
+                    '>4sIIQQQ28s',
+                    b'AVBf',
+                    1,
+                    0,
+                    vbm_offset,
+                    vbm_offset,
+                    len(vbmeta_data),
+                    b'\x00' * 28
+                )
+            else:
+                footer = b'\x00' * 64
+
+            final_padded = final_data + (b'\x00' * headroom) + footer
+            print(f"    [+] Successfully fits at ZSTD level {zstd_level}: {final_data_len} bytes + {len(footer)}B footer <= {target_part_size} bytes (Headroom: {headroom/1024:.2f} KB)")
             break
 
     if final_padded is None:
@@ -297,7 +394,7 @@ def repack(stock_path, built_path, output_path):
 
     print(f"[+] Output written to: {output_path}")
     print(f"[+] Final file size: {len(final_padded)} bytes (Exactly 64.0 MB)")
-    print("[+] Android 16 Dual-Ramdisk Assembly Complete!")
+    print("[+] Android 16 Dual-Ramdisk Assembly Complete with AVBf Footer!")
 
 if __name__ == '__main__':
     if len(sys.argv) >= 4:
