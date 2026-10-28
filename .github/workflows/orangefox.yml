@@ -94,6 +94,10 @@ jobs:
           mkdir -p $HOME/fox_14.1/device/infinix/X6851B
           cp -r $GITHUB_WORKSPACE/device/infinix/X6851B/* $HOME/fox_14.1/device/infinix/X6851B/
           chmod +x $HOME/fox_14.1/device/infinix/X6851B/vendorsetup.sh
+          mkdir -p $HOME/fox_14.1/cts/tests/tests/os/assets
+          touch $HOME/fox_14.1/cts/tests/tests/os/assets/platform_releases.txt
+          printf '16\n16.1.0\n16.1\n' >> $HOME/fox_14.1/cts/tests/tests/os/assets/platform_releases.txt
+          echo '' > $HOME/fox_14.1/build/make/core/tasks/cts.mk || true
 
       - name: Build OrangeFox Recovery Ramdisk
         run: |
